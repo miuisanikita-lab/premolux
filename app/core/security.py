@@ -140,7 +140,7 @@ async def get_current_user(
     if not user:
         # ── XAVFSIZLIK: faqat OWNER_TG_ID mos kelsa avtomatik egasi
         # bo'lib ro'yxatdan o'tadi. Boshqa har qanday notanish odam —
-        # RAD ETILADI, taklif kodisiz botga umuman kira olmaydi. ──
+        # RAD ETILADI, takrif kodisiz botga umuman kira olmaydi. ──
         if settings.owner_tg_id and tg_id == int(settings.owner_tg_id):
             user = User(
                 tg_id=tg_id,
@@ -156,6 +156,21 @@ async def get_current_user(
                 403,
                 "Bu botga faqat taklif kodi orqali qo'shilish mumkin. "
                 "Egasi sizga kod berishi kerak.",
+            )
+    else:
+        # ── MAJBURIY OBUNA: ro'yxatdan o'tganlar uchun ham
+        # har kirishda tekshiriladi. Kanal/guruhdan chiqib
+        # ketgan bo'lsa — qayta obuna bo'lish talab qilinadi.
+        # OWNER uchun tekshiruv o'tkazib yuboriladi. ──
+        missing = await require_subscription(tg_id)
+        if missing:
+            raise HTTPException(
+                428,
+                detail={
+                    "message": "sub_required",
+                    "code": "sub_required",
+                    "missing": missing,
+                },
             )
 
     return user
