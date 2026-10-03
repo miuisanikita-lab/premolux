@@ -36,17 +36,47 @@ async def _missing_channels(tg_id: int) -> list[str]:
     """
     Foydalanuvchi a'zo bo'lmagan majburiy kanallar/guruhlar ro'yxati.
 
-    Telethon orqali bot hisobidan foydalanuvchining DIALOG'larini
-    o'qib, kerakli kanal/guruh ichida ekanligini tekshiradi.
-    Xatolik bo'lsa (bot ishlamayapti, proxy muammo va h.k.) —
-    tekshiruvni BEKOR qilamiz: obuna majburiyatini buzmaslik
-    uchun emas, balki bot ishlamayotganda ham ro'yxatdan
-    o'tishga ruxsat berish uchun (fail-open).
+    AVVAL Telegram Bot API orqali tekshiriladi (getChatMember) —
+    bu BOT_TOKEN orqali ishlaydi, Telethon kerak emas.
+    Bot API ishlamasa — Telethon orqali uriniladi.
+    Ikkalasi ham ishlamasa — fail-close: barcha kanallar
+    "a'zo emas" deb hisoblanadi (obuna talab qilinadi).
     """
+    import httpx
     channels = _required_channels()
     if not channels:
         return []
 
+    # ── 1-usul: Telegram Bot API (getChatMember) ──
+    # BOT_TOKEN orqali ishlaydi — Telethon kerak emas.
+    if settings.bot_token:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                missing = []
+                for ch in channels:
+                    r = await client.get(
+                        f"https://api.telegram.org/bot{settings.bot_token}/getChatMember",
+                        params={"chat_id": f"@{ch}", "user_id": tg_id},
+                    )
+                    if r.status_code != 200:
+                        # kanal topilmadi yoki bot kanalda emas
+                        missing.append(ch)
+                        continue
+                    data = r.json()
+                    if not data.get("ok"):
+                        missing.append(ch)
+                        continue
+                    status = data.get("result", {}).get("status", "")
+                    # member, administrator, creator — a'zo
+                    # left, kicked, restricted — a'zo emas
+                    if status in ("member", "administrator", "creator"):
+                        continue
+                    missing.append(ch)
+                return missing
+        except Exception:
+            pass  # Bot API ishlamadi — Telethon'ga o'tamiz
+
+    # ── 2-usul: Telethon (get_dialogs) ──
     try:
         from telethon import TelegramClient
         from telethon.sessions import StringSession
@@ -62,7 +92,6 @@ async def _missing_channels(tg_id: int) -> list[str]:
             joined = set()
             for d in dialogs:
                 entity = d.entity
-                # kanal yoki guruh — username bo'lsa ro'yxatga olamiz
                 uname = getattr(entity, "username", None)
                 if uname:
                     joined.add(uname.lower().lstrip("@"))
@@ -70,8 +99,9 @@ async def _missing_channels(tg_id: int) -> list[str]:
         finally:
             await client.disconnect()
     except Exception:
-        # Bot ishlamayapti — tekshiruvni o'tkazib yuboramiz
-        return []
+        # Ikkalasi ham ishlamayapti — fail-close:
+        # barcha kanallar "a'zo emas" deb hisoblanadi
+        return list(channels)
 
 
 async def require_subscription(tg_id: int, owner_id: int | None = None) -> list[str]:
