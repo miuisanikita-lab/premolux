@@ -96,6 +96,19 @@ def _check_signature(init_data: str) -> dict:
         raise ValueError("hash yo'q")
 
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
+
+    # BOT_TOKEN sozlanmagan bo'lsa — imzo tekshiruvi
+    # o'tkazib yuboriladi (sinov rejimida). Bu holda
+    # faqat OWNER_TG_ID bilan mos keladigan foydalanuvchi
+    # kira oladi — boshqalar 403 bilan rad etiladi.
+    if not settings.bot_token:
+        import json as _json
+        user_json = _json.loads(parsed.get("user", "{}"))
+        tg_id = user_json.get("id")
+        if settings.owner_tg_id and tg_id and int(tg_id) == int(settings.owner_tg_id):
+            return parsed
+        raise ValueError("BOT_TOKEN sozlanmagan")
+
     secret_key = hmac.new(b"WebAppData", settings.bot_token.encode(), hashlib.sha256).digest()
     calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
 
