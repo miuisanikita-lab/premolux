@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.db import get_db
-from app.core.security import get_current_user, get_user_or_none
+from app.core.security import get_current_user, get_user_or_none, require_subscription
 from app.models.tables import User, InviteCode, Role
 from sqlalchemy import select
 from app.services import access_service
@@ -58,6 +58,40 @@ class JoinIn(BaseModel):
     code: str
 
 
+@router.post("/check-sub")
+async def check_sub(
+    db: AsyncSession = Depends(get_db),
+    who=Depends(get_user_or_none),
+):
+    """
+    Majburiy obuna tekshiruvi — frontend Onboarding'ning
+    1-bosqichidan "Obuna bo'ldim" tugmasi shu yerga so'rov
+    yuboradi. Backend Telegram'da foydalanuvchi kanal/guruhga
+    a'zoligini HAQIQIY tekshiradi (Telethon orqali).
+
+    Qaytaradi:
+      {"ok": true, "missing": []}                       — hammasi obuna
+      428 {"code":"sub_required","missing":["PremoLux"]} — hali a'zo emas
+
+    OWNER uchun doim ok — egasi uchun obuna majburiyati ishlamaydi.
+    """
+    if not who:
+        raise HTTPException(401, "Telegram orqali ochilishi kerak")
+    tg_id, _ = who
+
+    missing = await require_subscription(tg_id)
+    if missing:
+        raise HTTPException(
+            428,
+            detail={
+                "message": "sub_required",
+                "code": "sub_required",
+                "missing": missing,
+            },
+        )
+    return {"ok": True, "missing": []}
+
+
 @router.post("/join")
 async def join(
     payload: JoinIn,
@@ -72,6 +106,21 @@ async def join(
     if not who:
         raise HTTPException(401, "Telegram orqali ochilishi kerak")
     tg_id, user_json = who
+
+    # ── MAJBURIY OBUNA: join dan oldin yana bir bor tekshiramiz ──
+    # (get_user_or_none allaqachon tekshirgan, lekin bevosita
+    #  so'rov yuborish uchun ham himoya qo'yamiz)
+    # OWNER uchun tekshiruv o'tkazib yuboriladi.
+    missing = await require_subscription(tg_id)
+    if missing:
+        raise HTTPException(
+            428,
+            detail={
+                "message": "sub_required",
+                "code": "sub_required",
+                "missing": missing,
+            },
+        )
 
     invite = (await db.execute(
         select(InviteCode).where(InviteCode.code == payload.code, InviteCode.used == False)

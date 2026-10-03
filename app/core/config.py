@@ -15,7 +15,10 @@ class Settings(BaseSettings):
     tg_api_id: int = 0
     tg_api_hash: str = ""
     bot_token: str = ""                  # PremoLux boshqaruv boti (WebApp shu botga bog'lanadi)
-    required_channel: str = "@PremoLux"  # majburiy obuna kanali
+    # Majburiy obuna — foydalanuvchi shu kanal/guruhlarga
+    # a'zo bo'lmaganicha panelga kira olmaydi (owner dan tashqari).
+    # Format: "@PremoLux,@Premolux_chat"
+    required_channels: str = "@PremoLux,@Premolux_chat"
 
     # ── xavfsizlik ──
     jwt_secret: str = "CHANGE_ME_IN_PRODUCTION"

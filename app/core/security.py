@@ -9,6 +9,7 @@ oldini oladi. Batafsil: https://core.telegram.org/bots/webapps#validating-data-r
 """
 import hashlib
 import hmac
+import json
 from urllib.parse import parse_qsl
 
 from fastapi import Header, HTTPException, Depends
@@ -18,6 +19,74 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.db import get_db
 from app.models.tables import User, Role
+
+
+def _required_channels() -> list[str]:
+    """Majburiy obuna ro'yxati — sozlamadan o'qiladi, @ belgisi tozalanadi."""
+    raw = getattr(settings, "required_channels", "") or ""
+    out = []
+    for part in raw.split(","):
+        name = part.strip().lstrip("@")
+        if name:
+            out.append(name)
+    return out
+
+
+async def _missing_channels(tg_id: int) -> list[str]:
+    """
+    Foydalanuvchi a'zo bo'lmagan majburiy kanallar/guruhlar ro'yxati.
+
+    Telethon orqali bot hisobidan foydalanuvchining DIALOG'larini
+    o'qib, kerakli kanal/guruh ichida ekanligini tekshiradi.
+    Xatolik bo'lsa (bot ishlamayapti, proxy muammo va h.k.) —
+    tekshiruvni BEKOR qilamiz: obuna majburiyatini buzmaslik
+    uchun emas, balki bot ishlamayotganda ham ro'yxatdan
+    o'tishga ruxsat berish uchun (fail-open).
+    """
+    channels = _required_channels()
+    if not channels:
+        return []
+
+    try:
+        from telethon import TelegramClient
+        from telethon.sessions import StringSession
+        from app.services.telethon_pool import default_proxy_conf
+
+        client = TelegramClient(
+            StringSession(), settings.tg_api_id, settings.tg_api_hash,
+            proxy=await default_proxy_conf(),
+        )
+        await client.connect()
+        try:
+            dialogs = await client.get_dialogs(limit=None)
+            joined = set()
+            for d in dialogs:
+                entity = d.entity
+                # kanal yoki guruh — username bo'lsa ro'yxatga olamiz
+                uname = getattr(entity, "username", None)
+                if uname:
+                    joined.add(uname.lower().lstrip("@"))
+            return [c for c in channels if c.lower().lstrip("@") not in joined]
+        finally:
+            await client.disconnect()
+    except Exception:
+        # Bot ishlamayapti — tekshiruvni o'tkazib yuboramiz
+        return []
+
+
+async def require_subscription(tg_id: int, owner_id: int | None = None) -> list[str]:
+    """
+    Majburiy obuna tekshiruvi.
+
+    OWNER (sozlamadagi owner_tg_id) uchun DOIM o'tkaziladi —
+    egasi uchun obuna majburiyati ishlamaydi.
+    Qaytaradi: a'zo bo'lmagan kanallar ro'yxati (bo'sh = hammasi ok).
+    """
+    if owner_id is not None and tg_id == owner_id:
+        return []
+    if settings.owner_tg_id and tg_id == int(settings.owner_tg_id):
+        return []
+    return await _missing_channels(tg_id)
 
 
 def _check_signature(init_data: str) -> dict:
@@ -115,5 +184,27 @@ async def get_user_or_none(
     tg_id = user_json.get("id")
     if not tg_id:
         return None
+
+    try:
+        tg_id = int(tg_id)
+    except (TypeError, ValueError):
+        return None
+
+    # ── MAJBURIY OBUNA tekshiruvi ──
+    # Ro'yxatdan o'tmagan foydalanuvchi /auth/join orqali kirishidan
+    # AVVAL kanal/guruhlarga a'zoligini tekshiramiz.
+    # OWNER uchun tekshiruv o'tkazib yuboriladi (require_subscription).
+    missing = await require_subscription(tg_id)
+    if missing:
+        # maxsus kod — frontend "obuna bo'ling" ekranini
+        # ko'rsatishi uchun (403 bilan chalkashmasin degan uchun)
+        raise HTTPException(
+            428,
+            detail={
+                "message": "sub_required",
+                "code": "sub_required",
+                "missing": missing,
+            },
+        )
 
     return tg_id, user_json
