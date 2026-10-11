@@ -98,7 +98,7 @@ class LaneError(Exception):
         super().__init__(reason)
 
 
-async def run_lane(lane_id: int, pool: TelethonPool) -> None:
+async def run_lane(lane_id: int, pool: TelethonPool, max_retries: int = 1) -> None:
     """
     Bitta Lane uchun to'liq oqimni bajaradi. Xato chiqsa ushlab,
     Lane holatini 'failed' qilib, funksiyadan tinch chiqadi —
@@ -106,11 +106,9 @@ async def run_lane(lane_id: int, pool: TelethonPool) -> None:
 
     MUHIM: login bosqichida xato (login_failed/waiting_stuck)
     chiqsa — Freeze bosilib, DARROV YANGI RAQAM bilan qayta
-    urinib ko'riladi (siz belgilagan qoida). Bu — boshqa xato
-    turlariga (masalan bot ulanmagan) taalluqli EMAS, ular
-    darrov Lane'ni to'xtatadi.
+    urinib ko'riladi. max_retries frontend sozlamasidan olinadi.
     """
-    MAX_LOGIN_ATTEMPTS = 5
+    MAX_LOGIN_ATTEMPTS = max(1, min(5, max_retries + 1))
 
     async with SessionLocal() as db:
         lane = await db.get(Lane, lane_id)
@@ -394,7 +392,7 @@ async def _get_access_account(db: AsyncSession, lane: Lane) -> AccessAccount:
     """
     MUHIM: faqat connected=True bo'lgan hisobni oladi — va owner_id
     orqali QATTIQ filtrlanadi. Shu tufayli egasi va hamkorning
-    hisoblari HECH QACHON aralashmaydi, va eski (uzilgan) dostup
+     hisoblari HECH QACHON aralashmaydi, va eski (uzilgan) dostup
     hisob ham noto'g'ri ishlatilmaydi.
     """
     order = await db.get(Order, lane.order_id)
