@@ -8,14 +8,22 @@ davrida, tezda tekshirish uchun. Production'da bu router olib
 tashlanishi yoki himoyalanishi kerak.
 """
 import os
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Depends
 from fastapi.responses import FileResponse
+
+from app.core.config import settings
+from app.core.security import get_current_user
+from app.models.tables import User, Role
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
 
 @router.get("/last-screenshot")
-async def last_screenshot():
+async def last_screenshot(user: User = Depends(get_current_user)):
+    if not settings.enable_debug:
+        raise HTTPException(404, "Debug endpoint yopiq")
+    if user.role != Role.owner:
+        raise HTTPException(403, "Faqat egasi uchun")
     path = "/tmp/last_bank_page.png"
     if not os.path.exists(path):
         raise HTTPException(404, "Hali hech qanday surat saqlanmagan")
