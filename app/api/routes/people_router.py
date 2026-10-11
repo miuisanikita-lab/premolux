@@ -143,3 +143,28 @@ async def delete_card(
     await db.delete(card)
     await db.commit()
     return {"ok": True}
+
+
+@router.get("/cards/{card_id}/secret")
+async def card_secret(
+    card_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    To'liq karta raqami va CVV — FAQAT nusxa olish uchun.
+    Faqat kartaning egasiga qaytariladi.
+    """
+    card = await db.get(Card, card_id)
+    if not card:
+        raise HTTPException(404, "Karta topilmadi")
+    person = await db.get(Person, card.person_id)
+    if not person or person.owner_id != user.id:
+        raise HTTPException(404, "Karta topilmadi")
+
+    return {
+        "id": card.id,
+        "number": decrypt(card.number_enc),
+        "exp": card.exp,
+        "cvv": decrypt(card.cvv_enc),
+    }
