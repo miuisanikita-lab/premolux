@@ -10,7 +10,7 @@ Eslatma: frontend api.js da yozilgan:
 Shu formatga aynan mos.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
@@ -29,6 +29,8 @@ class BankSelection(BaseModel):
 class StartOrderIn(BaseModel):
     personId: int
     banks: list[BankSelection]
+    maxRetries: int = Field(default=1, ge=0, le=5)
+    cardCap: int = Field(default=3, ge=1, le=20)
 
 
 @router.post("/start")
@@ -43,6 +45,7 @@ async def start_order(
     order = await order_service.start_order(
         db, owner_id=user.id, person_id=payload.personId,
         selections=[b.model_dump() for b in payload.banks],
+        max_retries=payload.maxRetries,
     )
     return {"orderId": order.id, "laneCount": len(payload.banks)}
 
