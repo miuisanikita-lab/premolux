@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     proxy_user: str = ""
     proxy_pass: str = ""
 
+    # ── xavfsizlik va debug ──
+    enable_debug: bool = False
+    webapp_origins: str = ""             # ruxsat etilgan domenlar, vergul bilan
+    premolux_enc_key: str = ""
+
     class Config:
         env_file = ".env"
 
