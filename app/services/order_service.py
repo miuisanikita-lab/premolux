@@ -25,7 +25,7 @@ def get_pool() -> TelethonPool:
 
 
 async def start_order(db: AsyncSession, owner_id: int, person_id: int,
-                       selections: list[dict]) -> Order:
+                       selections: list[dict], max_retries: int = 1) -> Order:
     """
     selections — frontenddan keladigan ro'yxat:
       [{ "cardId": 12, "bankId": "uzum" }, { "cardId": 15, "bankId": "kapital" }, ...]
@@ -75,12 +75,12 @@ async def start_order(db: AsyncSession, owner_id: int, person_id: int,
         await db.refresh(lane)
 
     # ── LANE'LAR PARALEL, LEKIN "streams" CHEGARASIDAN OSHMAYDI ──
-    asyncio.create_task(_run_all_lanes([l.id for l in lanes], max_streams))
+    asyncio.create_task(_run_all_lanes([l.id for l in lanes], max_streams, max_retries))
 
     return order
 
 
-async def _run_all_lanes(lane_ids: list[int], max_streams: int) -> None:
+async def _run_all_lanes(lane_ids: list[int], max_streams: int, max_retries: int = 1) -> None:
     """
     asyncio.Semaphore orqali bir vaqtda ishlaydigan Lane sonini
     Sozlamalardagi "Bir vaqtda oqim" qiymati bilan cheklaydi.
@@ -91,7 +91,7 @@ async def _run_all_lanes(lane_ids: list[int], max_streams: int) -> None:
 
     async def _guarded(lid: int):
         async with sem:
-            await run_lane(lid, _pool)
+            await run_lane(lid, _pool, max_retries=max_retries)
 
     await asyncio.gather(*[_guarded(lid) for lid in lane_ids], return_exceptions=True)
 
